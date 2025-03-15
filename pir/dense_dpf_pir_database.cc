@@ -77,13 +77,6 @@ DenseDpfPirDatabase::Builder& DenseDpfPirDatabase::Builder::Insert(
   return *this;
 }
 
-DenseDpfPirDatabase::Builder& DenseDpfPirDatabase::Builder::Write(
-    std::string value, size_t index) {
-  total_database_bytes_ += AlignBytes(value.size()) - AlignBytes(values_[index].size());
-  values_[index] = std::move(value);
-  return *this;
-}
-
 DenseDpfPirDatabase::Builder& DenseDpfPirDatabase::Builder::Clear() {
   values_.clear();
   total_database_bytes_ = 0;
@@ -155,6 +148,48 @@ absl::Status DenseDpfPirDatabase::Append(std::string value) {
   content_views_.push_back(absl::string_view(buffer_at_offset, value_size));
   return absl::OkStatus();
 }
+
+absl::Status DenseDpfPirDatabase::UpdateEntry(size_t index, std::string new_value) {
+  if (index >= size()) {
+    return absl::OutOfRangeError("Index out of bounds");
+  }
+  
+  const auto& [current_offset, current_size] = value_offsets_[index];
+  const size_t new_size = new_value.size();
+  const size_t current_aligned_size = AlignBytes(current_size);
+  const size_t new_aligned_size = AlignBytes(new_size);
+  
+  if (new_aligned_size <= current_aligned_size) {
+    // Update in-place
+    char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[current_offset]);
+    std::memset(buffer_at_offset, 0, current_aligned_size);
+    if (new_size > 0) {
+      new_value.copy(buffer_at_offset, new_size);
+    }
+    value_offsets_[index].second = new_size;
+    content_views_[index] = absl::string_view(buffer_at_offset, new_size);
+    max_value_size_ = std::max(max_value_size_, new_size);
+    return absl::OkStatus();
+  }
+  
+  // Append to end
+  const BlockType* const buffer_head_old = buffer_.data();
+  const size_t offset = buffer_.size();
+  buffer_.resize(buffer_.size() + new_aligned_size / sizeof(BlockType));
+  if (buffer_head_old != &buffer_[0]) {
+    return absl::InternalError("Buffer reallocation detected. Cannot update safely.");
+  }
+  
+  char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[offset]);
+  new_value.copy(buffer_at_offset, new_size);
+  value_offsets_[index] = {offset, new_size};
+  content_views_[index] = absl::string_view(buffer_at_offset, new_size);
+  max_value_size_ = std::max(max_value_size_, new_size);
+  
+  return absl::OkStatus();
+}
+
+
 
 // Returns the inner product between the database values and a bit vector
 // (packed in blocks).
