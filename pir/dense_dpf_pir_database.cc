@@ -51,12 +51,6 @@ size_t AlignBytes(size_t value_size_in_bytes) {
   return round_up_value_size_in_bytes & kAlignmentMask;
 }
 
-absl::Status CheckHasNotBeenBuilt(bool has_been_built) {
-  if (has_been_built) {
-    return absl::FailedPreconditionError("Database already built");
-  }
-  return absl::OkStatus();
-}
 
 inline constexpr int64_t NumBytesToNumBlocks(int64_t num_bytes) {
   return (num_bytes + (sizeof(DenseDpfPirDatabase::BlockType) - 1)) /
@@ -66,14 +60,13 @@ inline constexpr int64_t NumBytesToNumBlocks(int64_t num_bytes) {
 }  // namespace
 
 DenseDpfPirDatabase::Builder::Builder()
-    : total_database_bytes_(0), has_been_built_(false) {}
+    : total_database_bytes_(0) {}
 
 std::unique_ptr<DenseDpfPirDatabase::Interface::Builder>
 DenseDpfPirDatabase::Builder::Clone() const {
   auto result = std::make_unique<Builder>();
   result->total_database_bytes_ = total_database_bytes_;
   result->values_ = values_;
-  result->has_been_built_ = has_been_built_;
   return result;
 }
 
@@ -84,17 +77,21 @@ DenseDpfPirDatabase::Builder& DenseDpfPirDatabase::Builder::Insert(
   return *this;
 }
 
+DenseDpfPirDatabase::Builder& DenseDpfPirDatabase::Builder::Write(
+    std::string value, size_t index) {
+  total_database_bytes_ += AlignBytes(value.size()) - AlignBytes(values_[index].size());
+  values_[index] = std::move(value);
+  return *this;
+}
+
 DenseDpfPirDatabase::Builder& DenseDpfPirDatabase::Builder::Clear() {
   values_.clear();
   total_database_bytes_ = 0;
-  has_been_built_ = false;
   return *this;
 }
 
 absl::StatusOr<std::unique_ptr<DenseDpfPirDatabase::Interface>>
 DenseDpfPirDatabase::Builder::Build() {
-  DPF_RETURN_IF_ERROR(CheckHasNotBeenBuilt(has_been_built_));
-  has_been_built_ = true;
   auto database = absl::WrapUnique(
       new DenseDpfPirDatabase(values_.size(), total_database_bytes_));
   std::vector<std::string> values =

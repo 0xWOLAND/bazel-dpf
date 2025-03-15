@@ -53,6 +53,8 @@ class DenseDpfPirDatabase
     Builder();
     // Appends a record `value` at the end of the database.
     Builder& Insert(std::string) override;
+
+    Builder& Write(std::string, size_t);
     // Clears all elements inserted into this builder, but leaves any other
     // configuration intact.
     Builder& Clear() override;

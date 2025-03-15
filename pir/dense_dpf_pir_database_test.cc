@@ -139,24 +139,19 @@ class DenseDpfPirDatabaseBuilderInsertTest : public ::testing::Test {
   std::vector<int> rebuild_content_view_test_cases_;
 };
 
-TEST_F(DenseDpfPirDatabaseBuilderInsertTest, BuildFailsIfAlreadyBuilt) {
+TEST_F(DenseDpfPirDatabaseBuilderInsertTest, WriteMethod) {
   DenseDpfPirDatabase::Builder builder;
-  DPF_EXPECT_OK(builder.Build());
-  EXPECT_THAT(builder.Build(), StatusIs(absl::StatusCode::kFailedPrecondition,
-                                        HasSubstr("already built")));
-  EXPECT_THAT(builder.Clone()->Build(),
-              StatusIs(absl::StatusCode::kFailedPrecondition,
-                       HasSubstr("already built")));
-}
 
-TEST_F(DenseDpfPirDatabaseBuilderInsertTest, CanBuildAgainAfterCallingClear) {
-  DenseDpfPirDatabase::Builder builder;
-  DPF_EXPECT_OK(builder.Build());
-  EXPECT_THAT(builder.Build(), StatusIs(absl::StatusCode::kFailedPrecondition,
-                                        HasSubstr("already built")));
+  // Insert two values
+  builder.Insert("original_value_1");
+  builder.Insert("original_value_2");
 
-  builder.Clear();
-  EXPECT_THAT(builder.Build(), IsOkAndHolds(NotNull()));
+  // Write a new value at index 0
+  builder.Write("new_value", 0);
+
+  // Build database and verify the write worked
+  DPF_ASSERT_OK_AND_ASSIGN(InterfacePtr database, builder.Build());
+  EXPECT_THAT(database, IsContentEqual({"new_value", "original_value_2"}));
 }
 
 // Values can be correctly inserted to the database.
