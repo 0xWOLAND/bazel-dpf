@@ -71,6 +71,8 @@ class DenseDpfPirDatabase
     int64_t total_database_bytes_;
     bool has_been_built_;
   };
+  // Constructs a DenseDpfPirDatabase object.
+  DenseDpfPirDatabase(int64_t num_values, int64_t total_database_bytes);
 
   // Returns the number of records contained in the database.
   size_t size() const override { return content_views_.size(); }
@@ -90,17 +92,14 @@ class DenseDpfPirDatabase
   // Returns the maximal size of values in the database. Used for testing.
   size_t max_value_size_in_bytes() const { return max_value_size_; }
 
+  // Appends a record `value` at the current end of the database. Used by
+  // Builder::Build() to construct the database.
+  absl::Status Append(std::string value);
+
   absl::Status UpdateEntry(size_t index, std::string new_value);
 
  private:
   static constexpr int kBitsPerBlock = 8 * sizeof(absl::uint128);
-
-  // Constructs a DenseDpfPirDatabase object.
-  DenseDpfPirDatabase(int64_t num_values, int64_t total_database_bytes);
-
-  // Appends a record `value` at the current end of the database. Used by
-  // Builder::Build() to construct the database.
-  absl::Status Append(std::string value);
 
   // Maximal size (in bytes) of values in the database
   size_t max_value_size_;
