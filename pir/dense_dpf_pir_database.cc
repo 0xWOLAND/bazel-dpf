@@ -156,82 +156,72 @@ absl::Status DenseDpfPirDatabase::UpdateEntry(size_t index, std::string new_valu
 absl::Status DenseDpfPirDatabase::BatchUpdateEntry(
     const std::vector<size_t>& indices,
     const std::vector<std::string>& new_values) {
-  if (indices.size() != new_values.size()) {
+  if (indices.size() != new_values.size())
     return absl::InvalidArgumentError("Indices and values size mismatch");
-  }
-  
-  std::vector<bool> will_update(size(), false);
-  
-  size_t additional_bytes_needed = 0;
-  size_t current_offset = buffer_.size();
-  
+
+  // Validate indices and calculate space requirements
+  struct Update { size_t idx, new_sz, cur_off, cur_sz, cur_align, new_align; };
+  std::vector<Update> updates(indices.size());
   for (size_t i = 0; i < indices.size(); ++i) {
-    const size_t index = indices[i];
-    if (index >= size()) {
-      return absl::OutOfRangeError("Index out of bounds");
-    }
-    
-    will_update[index] = true;
-    
-    const auto& [current_offset_i, current_size] = value_offsets_[index];
-    const size_t new_size = new_values[i].size();
-    const size_t current_aligned_size = AlignBytes(current_size);
-    const size_t new_aligned_size = AlignBytes(new_size);
-    
-    if (new_aligned_size > current_aligned_size) {
-      additional_bytes_needed += new_aligned_size;
-    }
+    const size_t idx = indices[i];
+    if (idx >= size()) return absl::OutOfRangeError("Index out of bounds");
+    const auto& [off, sz] = value_offsets_[idx];
+    updates[i] = {idx, new_values[i].size(), off, sz, AlignBytes(sz), AlignBytes(new_values[i].size())};
   }
-  
-  const BlockType* const buffer_head_old = buffer_.data();
-  
-  if (additional_bytes_needed > 0) {
-    const size_t new_blocks_needed = (additional_bytes_needed + sizeof(BlockType) - 1) / sizeof(BlockType);
-    buffer_.reserve(buffer_.size() + new_blocks_needed);
-    buffer_.resize(buffer_.size() + new_blocks_needed);
+
+  // Calculate net space needs
+  size_t add_bytes = 0, reclaim_bytes = 0;
+  for (const auto& u : updates) {
+    if (u.new_align > u.cur_align) add_bytes += u.new_align - u.cur_align;
+    else if (u.new_align < u.cur_align) reclaim_bytes += u.cur_align - u.new_align;
   }
-  
-  const bool reallocation_occurred = (buffer_head_old != buffer_.data() && buffer_head_old != nullptr);
-  if (reallocation_occurred) {
-    for (size_t i = 0; i < value_offsets_.size(); ++i) {
-      if (!will_update[i]) {
-        const auto& [offset_i, size_i] = value_offsets_[i];
-        char* const rebased_buffer = reinterpret_cast<char*>(&buffer_[offset_i]);
-        content_views_[i] = absl::string_view(rebased_buffer, size_i);
-      }
-    }
+  size_t net_bytes = add_bytes > reclaim_bytes ? add_bytes - reclaim_bytes : 0;
+
+  // Grow buffer if necessary
+  size_t cur_off = buffer_.size();
+  if (net_bytes > 0) {
+    const size_t blocks = (net_bytes + sizeof(BlockType) - 1) / sizeof(BlockType);
+    buffer_.resize(buffer_.size() + blocks);
   }
-  
-  // Perform updates
-  for (size_t i = 0; i < indices.size(); ++i) {
-    const size_t index = indices[i];
-    const std::string& new_value = new_values[i];
-    const size_t new_size = new_value.size();
-    const auto& [current_offset_i, current_size] = value_offsets_[index];
-    const size_t current_aligned_size = AlignBytes(current_size);
-    const size_t new_aligned_size = AlignBytes(new_size);
-    
-    if (new_aligned_size <= current_aligned_size) {
-      // Update in-place using memcpy instead of copy for better performance
-      char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[current_offset_i]);
-      std::memset(buffer_at_offset, 0, current_aligned_size);
-      if (new_size > 0) {
-        std::memcpy(buffer_at_offset, new_value.data(), new_size);
-      }
-      value_offsets_[index].second = new_size;
-      content_views_[index] = absl::string_view(buffer_at_offset, new_size);
+
+  // Track free space for reuse
+  struct Free { size_t off, sz; };
+  std::vector<Free> free_spaces;
+  for (size_t i = 0; i < updates.size(); ++i) {
+    const auto& u = updates[i];
+    const std::string& val = new_values[i];
+
+    // Find target offset
+    size_t tgt_off;
+    if (u.new_align <= u.cur_align) {
+      tgt_off = u.cur_off;
     } else {
-      // Append to end using memcpy
-      char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[current_offset]);
-      std::memcpy(buffer_at_offset, new_value.data(), new_size);
-      value_offsets_[index] = {current_offset, new_size};
-      content_views_[index] = absl::string_view(buffer_at_offset, new_size);
-      current_offset += new_aligned_size / sizeof(BlockType);
+      auto it = std::find_if(free_spaces.begin(), free_spaces.end(),
+                             [u](const Free& f) { return f.sz >= u.new_align; });
+      if (it != free_spaces.end()) {
+        tgt_off = it->off;
+        it->sz -= u.new_align;
+        if (it->sz == 0) free_spaces.erase(it);
+      } else {
+        tgt_off = cur_off;
+        cur_off += u.new_align / sizeof(BlockType);
+      }
     }
-    
-    max_value_size_ = std::max(max_value_size_, new_size);
+
+    // Mark old space as free if abandoned
+    if (tgt_off != u.cur_off && u.cur_align > 0)
+      free_spaces.push_back({u.cur_off, u.cur_align});
+
+    // Update buffer and metadata
+    char* buf = reinterpret_cast<char*>(&buffer_[tgt_off]);
+    if (u.new_sz < u.cur_sz && tgt_off == u.cur_off)
+      std::memset(buf + u.new_sz, 0, u.cur_sz - u.new_sz);
+    if (u.new_sz > 0) std::memcpy(buf, val.data(), u.new_sz);
+    value_offsets_[u.idx] = {tgt_off, u.new_sz};
+    content_views_[u.idx] = absl::string_view(buf, u.new_sz);
+    max_value_size_ = std::max(max_value_size_, u.new_sz);
   }
-  
+
   return absl::OkStatus();
 }
 
