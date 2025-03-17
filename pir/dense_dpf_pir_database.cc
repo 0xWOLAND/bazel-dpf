@@ -176,10 +176,18 @@ absl::Status DenseDpfPirDatabase::UpdateEntry(size_t index, std::string new_valu
   const BlockType* const buffer_head_old = buffer_.data();
   const size_t offset = buffer_.size();
   buffer_.resize(buffer_.size() + new_aligned_size / sizeof(BlockType));
-  if (buffer_head_old != &buffer_[0]) {
-    return absl::InternalError("Buffer reallocation detected. Cannot update safely.");
+  
+  if (buffer_head_old != buffer_.data()) {
+    for (size_t i = 0; i < value_offsets_.size(); ++i) {
+      const auto& [offset_i, size_i] = value_offsets_[i];
+      if (i != index) {
+        char* const rebased_buffer = reinterpret_cast<char*>(&buffer_[offset_i]);
+        content_views_[i] = absl::string_view(rebased_buffer, size_i);
+      }
+    }
   }
   
+  // Update the current entry
   char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[offset]);
   new_value.copy(buffer_at_offset, new_size);
   value_offsets_[index] = {offset, new_size};
