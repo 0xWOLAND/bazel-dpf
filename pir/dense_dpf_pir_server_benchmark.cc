@@ -65,7 +65,10 @@ void BM_HandlePlainRequestWithEqualSizeRecords(benchmark::State& state) {
   // Create the server.
   DPF_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<DenseDpfPirServer> server,
-      DenseDpfPirServer::CreatePlain(config, std::move(database)));
+      DenseDpfPirServer::CreatePlain(
+          config,
+          std::unique_ptr<DenseDpfPirDatabase>(
+              static_cast<DenseDpfPirDatabase*>(database.release()))));
 
   DPF_ASSERT_OK_AND_ASSIGN(
       auto request_generator,

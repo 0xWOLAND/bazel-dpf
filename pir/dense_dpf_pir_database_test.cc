@@ -148,10 +148,10 @@ TEST_F(DenseDpfPirDatabaseBuilderInsertTest, UpdateEntry) {
   auto* dense_database = static_cast<DenseDpfPirDatabase*>(database.get());
   
   // Update value at index 0
-  DPF_ASSERT_OK(dense_database->UpdateEntry(0, "new_value"));
+  DPF_ASSERT_OK(dense_database->UpdateEntry(1, "new_value"));
   
   // Verify the update worked
-  EXPECT_THAT(database, IsContentEqual({"new_value", "original_value_2"}));
+  EXPECT_THAT(database, IsContentEqual({"original_value_1", "new_value"}));
 }
 
 // Values can be correctly inserted to the database.

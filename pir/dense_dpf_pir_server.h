@@ -27,6 +27,7 @@
 #include "dpf/distributed_point_function.h"
 #include "pir/dpf_pir_server.h"
 #include "pir/pir_database_interface.h"
+#include "pir/dense_dpf_pir_database.h"
 #include "pir/private_information_retrieval.pb.h"
 
 namespace distributed_point_functions {
@@ -39,7 +40,7 @@ class DenseDpfPirServer : public DpfPirServer {
  public:
   // The Database interface used for dense DPF pir. Block type is
   // XorWrapper<absl::uint128> (same as used by DPFs), and values are strings.
-  using Database = PirDatabaseInterface<XorWrapper<absl::uint128>, std::string>;
+  using Database = DenseDpfPirDatabase;
 
   // Function type for the `sender` argument passed to CreateLeader. See
   // DpfPirServer documentation for details.

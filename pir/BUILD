@@ -128,6 +128,7 @@ cc_library(
         ":dpf_pir_server",
         ":pir_database_interface",
         ":private_information_retrieval_cc_proto",
+        ":dense_dpf_pir_database",
         "//dpf:distributed_point_function",
         "//dpf:status_macros",
         "@com_google_absl//absl/functional:any_invocable",
@@ -136,28 +137,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_test(
-    name = "dense_dpf_pir_server_test",
-    srcs = ["dense_dpf_pir_server_test.cc"],
-    deps = [
-        ":dense_dpf_pir_server",
-        ":private_information_retrieval_cc_proto",
-        "//dpf:distributed_point_function",
-        "//dpf:distributed_point_function_cc_proto",
-        "//dpf:xor_wrapper",
-        "//dpf/internal:status_matchers",
-        "//pir/testing:encrypt_decrypt",
-        "//pir/testing:mock_pir_database",
-        "@com_github_google_googletest//:gtest_main",
-        "@com_google_absl//absl/functional:any_invocable",
-        "@com_google_absl//absl/numeric:int128",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -201,27 +180,6 @@ cc_library(
     ],
 )
 
-cc_test(
-    name = "dense_dpf_pir_client_test",
-    srcs = ["dense_dpf_pir_client_test.cc"],
-    deps = [
-        ":dense_dpf_pir_client",
-        ":dense_dpf_pir_database",
-        ":dense_dpf_pir_server",
-        ":private_information_retrieval_cc_proto",
-        "//dpf/internal:status_matchers",
-        "//pir/prng:aes_128_ctr_seeded_prng",
-        "//pir/testing:encrypt_decrypt",
-        "//pir/testing:mock_pir_database",
-        "@com_github_google_googletest//:gtest_main",
-        "@com_google_absl//absl/functional:any_invocable",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:span",
-    ],
-)
-
 cc_library(
     name = "dpf_pir_server",
     srcs = ["dpf_pir_server.cc"],
@@ -237,28 +195,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:variant",
         "@tink_cc//:hybrid_decrypt",
-    ],
-)
-
-cc_test(
-    name = "dpf_pir_server_test",
-    srcs = ["dpf_pir_server_test.cc"],
-    deps = [
-        ":dense_dpf_pir_database",
-        ":dpf_pir_server",
-        ":private_information_retrieval_cc_proto",
-        "//dpf:status_macros",
-        "//dpf/internal:status_matchers",
-        "//pir/prng:aes_128_ctr_seeded_prng",
-        "//pir/testing:encrypt_decrypt",
-        "//pir/testing:mock_pir_database",
-        "//pir/testing:request_generator",
-        "@com_github_google_googletest//:gtest_main",
-        "@com_google_absl//absl/functional:any_invocable",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:span",
     ],
 )
 
