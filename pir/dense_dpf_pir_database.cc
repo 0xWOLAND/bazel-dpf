@@ -150,54 +150,90 @@ absl::Status DenseDpfPirDatabase::Append(std::string value) {
 }
 
 absl::Status DenseDpfPirDatabase::UpdateEntry(size_t index, std::string new_value) {
-  if (index >= size()) {
-    return absl::OutOfRangeError("Index out of bounds");
+  return BatchUpdateEntry({index}, {new_value});
+}
+
+absl::Status DenseDpfPirDatabase::BatchUpdateEntry(
+    const std::vector<size_t>& indices,
+    const std::vector<std::string>& new_values) {
+  if (indices.size() != new_values.size()) {
+    return absl::InvalidArgumentError("Indices and values size mismatch");
   }
   
-  const auto& [current_offset, current_size] = value_offsets_[index];
-  const size_t new_size = new_value.size();
-  const size_t current_aligned_size = AlignBytes(current_size);
-  const size_t new_aligned_size = AlignBytes(new_size);
+  std::vector<bool> will_update(size(), false);
   
-  if (new_aligned_size <= current_aligned_size) {
-    // Update in-place
-    char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[current_offset]);
-    std::memset(buffer_at_offset, 0, current_aligned_size);
-    if (new_size > 0) {
-      new_value.copy(buffer_at_offset, new_size);
+  size_t additional_bytes_needed = 0;
+  size_t current_offset = buffer_.size();
+  
+  for (size_t i = 0; i < indices.size(); ++i) {
+    const size_t index = indices[i];
+    if (index >= size()) {
+      return absl::OutOfRangeError("Index out of bounds");
     }
-    value_offsets_[index].second = new_size;
-    content_views_[index] = absl::string_view(buffer_at_offset, new_size);
-    max_value_size_ = std::max(max_value_size_, new_size);
-    return absl::OkStatus();
+    
+    will_update[index] = true;
+    
+    const auto& [current_offset_i, current_size] = value_offsets_[index];
+    const size_t new_size = new_values[i].size();
+    const size_t current_aligned_size = AlignBytes(current_size);
+    const size_t new_aligned_size = AlignBytes(new_size);
+    
+    if (new_aligned_size > current_aligned_size) {
+      additional_bytes_needed += new_aligned_size;
+    }
   }
   
-  // Append to end
   const BlockType* const buffer_head_old = buffer_.data();
-  const size_t offset = buffer_.size();
-  buffer_.resize(buffer_.size() + new_aligned_size / sizeof(BlockType));
   
-  if (buffer_head_old != buffer_.data()) {
+  if (additional_bytes_needed > 0) {
+    const size_t new_blocks_needed = (additional_bytes_needed + sizeof(BlockType) - 1) / sizeof(BlockType);
+    buffer_.reserve(buffer_.size() + new_blocks_needed);
+    buffer_.resize(buffer_.size() + new_blocks_needed);
+  }
+  
+  const bool reallocation_occurred = (buffer_head_old != buffer_.data() && buffer_head_old != nullptr);
+  if (reallocation_occurred) {
     for (size_t i = 0; i < value_offsets_.size(); ++i) {
-      const auto& [offset_i, size_i] = value_offsets_[i];
-      if (i != index) {
+      if (!will_update[i]) {
+        const auto& [offset_i, size_i] = value_offsets_[i];
         char* const rebased_buffer = reinterpret_cast<char*>(&buffer_[offset_i]);
         content_views_[i] = absl::string_view(rebased_buffer, size_i);
       }
     }
   }
   
-  // Update the current entry
-  char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[offset]);
-  new_value.copy(buffer_at_offset, new_size);
-  value_offsets_[index] = {offset, new_size};
-  content_views_[index] = absl::string_view(buffer_at_offset, new_size);
-  max_value_size_ = std::max(max_value_size_, new_size);
+  // Perform updates
+  for (size_t i = 0; i < indices.size(); ++i) {
+    const size_t index = indices[i];
+    const std::string& new_value = new_values[i];
+    const size_t new_size = new_value.size();
+    const auto& [current_offset_i, current_size] = value_offsets_[index];
+    const size_t current_aligned_size = AlignBytes(current_size);
+    const size_t new_aligned_size = AlignBytes(new_size);
+    
+    if (new_aligned_size <= current_aligned_size) {
+      // Update in-place using memcpy instead of copy for better performance
+      char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[current_offset_i]);
+      std::memset(buffer_at_offset, 0, current_aligned_size);
+      if (new_size > 0) {
+        std::memcpy(buffer_at_offset, new_value.data(), new_size);
+      }
+      value_offsets_[index].second = new_size;
+      content_views_[index] = absl::string_view(buffer_at_offset, new_size);
+    } else {
+      // Append to end using memcpy
+      char* const buffer_at_offset = reinterpret_cast<char*>(&buffer_[current_offset]);
+      std::memcpy(buffer_at_offset, new_value.data(), new_size);
+      value_offsets_[index] = {current_offset, new_size};
+      content_views_[index] = absl::string_view(buffer_at_offset, new_size);
+      current_offset += new_aligned_size / sizeof(BlockType);
+    }
+    
+    max_value_size_ = std::max(max_value_size_, new_size);
+  }
   
   return absl::OkStatus();
 }
-
-
 
 // Returns the inner product between the database values and a bit vector
 // (packed in blocks).

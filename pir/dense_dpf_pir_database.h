@@ -98,6 +98,8 @@ class DenseDpfPirDatabase
 
   absl::Status UpdateEntry(size_t index, std::string new_value);
 
+  absl::Status BatchUpdateEntry(const std::vector<size_t>& indices, const std::vector<std::string>& new_values);
+
  private:
   static constexpr int kBitsPerBlock = 8 * sizeof(absl::uint128);
 
